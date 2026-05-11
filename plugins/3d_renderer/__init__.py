@@ -154,7 +154,7 @@ class RendererPlugin:
             return
 
         # 禁用多重采样，避免部分显卡驱动出现 "failed to get valid pixel format" 错误
-        vtk.vtkRenderWindow.SetGlobalMaximumNumberOfMultiSamples(0)
+        vtk.vtkOpenGLRenderWindow.SetGlobalMaximumNumberOfMultiSamples(0)
 
         # 创建 PyVista Qt 交互窗口
         try:
