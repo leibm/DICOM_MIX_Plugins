@@ -18,7 +18,7 @@ logger = logging.getLogger("plugin.3d_renderer")
 
 PLUGIN_INFO = {
     "name": "3d_renderer",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "三维医学图像体渲染与 MPR 重建插件",
     "author": "leibm",
     "dependencies": ["vtk", "pyvista"],
@@ -73,6 +73,12 @@ class RendererPlugin:
             except Exception:
                 pass
             self._plotter = None
+        if self._window is not None:
+            try:
+                self._window.close()
+            except Exception:
+                pass
+            self._window = None
 
     # ------------------------------------------------------------------
     # 内部方法
@@ -139,12 +145,8 @@ class RendererPlugin:
             print(f"[3D Renderer] {msg}")
 
     def _show_render_window(self, file_list: List[str]):
-        """创建并显示 3D 渲染窗口。"""
+        """创建并显示 3D 渲染窗口，带 MPR 软件渲染回退。"""
         import numpy as np
-        import pydicom
-        import pyvista as pv
-        import vtk
-        from pyvistaqt import QtInteractor
 
         # 读取并排序 DICOM 文件
         try:
@@ -153,34 +155,146 @@ class RendererPlugin:
             self._show_message(f"加载 DICOM 数据失败:\n{e}")
             return
 
-        # 禁用多重采样，避免部分显卡驱动出现 "failed to get valid pixel format" 错误
-        vtk.vtkOpenGLRenderWindow.SetGlobalMaximumNumberOfMultiSamples(0)
+        # 先尝试硬件加速的 3D 渲染
+        use_hardware = self._try_hardware_rendering(volume_data, spacing)
+        if not use_hardware:
+            # 回退到纯软件的 MPR 2D 切片浏览
+            self._show_mpr_window(volume_data, spacing)
 
-        # 创建 PyVista Qt 交互窗口
+    def _try_hardware_rendering(self, volume_data, spacing) -> bool:
+        """尝试使用 PyVistaQt 进行硬件 3D 渲染。返回是否成功。"""
         try:
+            import pyvista as pv
+            import vtk
+            from pyvistaqt import QtInteractor
+
+            # 禁用多重采样，避免部分显卡驱动出现 pixel format 错误
+            vtk.vtkOpenGLRenderWindow.SetGlobalMaximumNumberOfMultiSamples(0)
+
             self._plotter = QtInteractor()
+
+            grid = pv.ImageData()
+            grid.dimensions = volume_data.shape
+            grid.spacing = spacing
+            grid.origin = (0, 0, 0)
+            grid.point_data["values"] = volume_data.flatten(order="F")
+
+            contours = grid.contour(isosurfaces=8)
+            if contours.n_points > 0:
+                self._plotter.add_mesh(contours, opacity=0.5, color="white")
+
+            self._plotter.add_volume(grid, cmap="gray", opacity="sigmoid")
+            self._plotter.reset_camera()
+            self._plotter.show()
+            return True
+
         except Exception as e:
-            logger.exception("创建 QtInteractor 失败")
-            self._show_message(f"初始化 3D 渲染窗口失败:\n{e}\n\n建议更新显卡驱动后重试。")
-            return
+            logger.warning(f"硬件 3D 渲染失败，将回退到 MPR: {e}")
+            self._plotter = None
+            return False
 
-        # 添加体渲染
-        grid = pv.ImageData()
-        grid.dimensions = volume_data.shape
-        grid.spacing = spacing
-        grid.origin = (0, 0, 0)
-        grid.point_data["values"] = volume_data.flatten(order="F")
+    def _show_mpr_window(self, volume_data: "np.ndarray", spacing: tuple):
+        """纯软件 MPR 多平面重建窗口（无 OpenGL 依赖）。"""
+        import numpy as np
+        from PySide6.QtWidgets import (
+            QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
+            QGridLayout, QGroupBox, QApplication
+        )
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QImage, QPixmap
 
-        # 添加轮廓（面渲染）
-        contours = grid.contour(isosurfaces=8)
-        if contours.n_points > 0:
-            self._plotter.add_mesh(contours, opacity=0.5, color="white")
+        class MPRViewer(QWidget):
+            def __init__(self, volume, spacing, parent=None):
+                super().__init__(parent)
+                self.volume = volume
+                self.spacing = spacing
+                self.nz, self.ny, self.nx = volume.shape
 
-        # 添加体属性（体渲染）
-        self._plotter.add_volume(grid, cmap="gray", opacity="sigmoid")
+                # 计算窗宽窗位默认值
+                self.vmin = float(volume.min())
+                self.vmax = float(volume.max())
 
-        self._plotter.reset_camera()
-        self._plotter.show()
+                self.setWindowTitle("MPR 多平面重建")
+                self.resize(1200, 800)
+
+                main_layout = QHBoxLayout(self)
+
+                # 三个视图组
+                self.axial_group = self._create_view_group("轴位 (Axial)", self.nz, self._update_axial)
+                self.coronal_group = self._create_view_group("冠状位 (Coronal)", self.ny, self._update_coronal)
+                self.sagittal_group = self._create_view_group("矢状位 (Sagittal)", self.nx, self._update_sagittal)
+
+                main_layout.addWidget(self.axial_group)
+                main_layout.addWidget(self.coronal_group)
+                main_layout.addWidget(self.sagittal_group)
+
+                # 初始显示中间切片
+                self.axial_slider.setValue(self.nz // 2)
+                self.coronal_slider.setValue(self.ny // 2)
+                self.sagittal_slider.setValue(self.nx // 2)
+
+            def _create_view_group(self, title, max_val, update_func):
+                group = QGroupBox(title)
+                layout = QVBoxLayout(group)
+
+                label = QLabel()
+                label.setMinimumSize(350, 350)
+                label.setAlignment(Qt.AlignCenter)
+                label.setStyleSheet("background-color: black;")
+                layout.addWidget(label)
+
+                slider = QSlider(Qt.Horizontal)
+                slider.setRange(0, max_val - 1)
+                slider.valueChanged.connect(update_func)
+                layout.addWidget(slider)
+
+                info = QLabel(f"切片: 0 / {max_val}")
+                layout.addWidget(info)
+
+                setattr(self, title.split()[0].lower() + "_label", label)
+                setattr(self, title.split()[0].lower() + "_slider", slider)
+                setattr(self, title.split()[0].lower() + "_info", info)
+                return group
+
+            def _array_to_pixmap(self, arr_2d):
+                """将 2D numpy 数组转为 QPixmap。"""
+                # 窗宽窗位映射到 0-255
+                arr = np.clip((arr_2d - self.vmin) / (self.vmax - self.vmin) * 255, 0, 255).astype(np.uint8)
+                h, w = arr.shape
+                image = QImage(arr.data, w, h, w, QImage.Format_Grayscale8)
+                pixmap = QPixmap.fromImage(image)
+                return pixmap
+
+            def _update_axial(self, z):
+                slice_data = self.volume[z, :, :]
+                pixmap = self._array_to_pixmap(slice_data)
+                label = self.axial_label
+                label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self.axial_info.setText(f"切片: {z + 1} / {self.nz}")
+
+            def _update_coronal(self, y):
+                slice_data = self.volume[:, y, :]
+                pixmap = self._array_to_pixmap(slice_data)
+                label = self.coronal_label
+                label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self.coronal_info.setText(f"切片: {y + 1} / {self.ny}")
+
+            def _update_sagittal(self, x):
+                slice_data = self.volume[:, :, x]
+                pixmap = self._array_to_pixmap(slice_data)
+                label = self.sagittal_label
+                label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self.sagittal_info.setText(f"切片: {x + 1} / {self.nx}")
+
+            def resizeEvent(self, event):
+                super().resizeEvent(event)
+                # 窗口大小改变时重绘当前切片
+                self._update_axial(self.axial_slider.value())
+                self._update_coronal(self.coronal_slider.value())
+                self._update_sagittal(self.sagittal_slider.value())
+
+        self._window = MPRViewer(volume_data, spacing)
+        self._window.show()
 
     def _load_dicom_volume(self, file_list: List[str]):
         """
