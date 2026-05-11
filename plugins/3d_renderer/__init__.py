@@ -11,6 +11,9 @@ import sys
 import logging
 from typing import List, Optional
 
+# 显式指定 Qt 后端为 PySide6，避免 pyvistaqt 无法找到绑定
+os.environ["QT_API"] = "pyside6"
+
 logger = logging.getLogger("plugin.3d_renderer")
 
 PLUGIN_INFO = {
