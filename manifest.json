@@ -1,0 +1,18 @@
+[
+  {
+    "name": "normalizer",
+    "version": "1.0.0",
+    "description": "DICOM 异构断层数据归一化插件（将不同品牌 DSA/CT 数据转换为标准 CT Image Storage）",
+    "author": "leibm",
+    "dependencies": ["pydicom", "numpy"],
+    "files": ["__init__.py", "plugin.json"]
+  },
+  {
+    "name": "3d_renderer",
+    "version": "1.0.0",
+    "description": "三维医学图像体渲染与 MPR 重建插件",
+    "author": "leibm",
+    "dependencies": ["vtk", "pyvista"],
+    "files": ["__init__.py", "plugin.json"]
+  }
+]

@@ -1,0 +1,9 @@
+{
+    "name": "normalizer",
+    "version": "1.0.0",
+    "description": "DICOM 异构断层数据归一化插件（将不同品牌 DSA/CT 数据转换为标准 CT Image Storage）",
+    "author": "leibm",
+    "dependencies": ["pydicom", "numpy"],
+    "entry_point": "NormalizerPlugin",
+    "min_app_version": "4.0.0"
+}
