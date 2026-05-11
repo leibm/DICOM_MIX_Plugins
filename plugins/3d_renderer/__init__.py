@@ -143,6 +143,7 @@ class RendererPlugin:
         import numpy as np
         import pydicom
         import pyvista as pv
+        import vtk
         from pyvistaqt import QtInteractor
 
         # 读取并排序 DICOM 文件
@@ -152,8 +153,16 @@ class RendererPlugin:
             self._show_message(f"加载 DICOM 数据失败:\n{e}")
             return
 
+        # 禁用多重采样，避免部分显卡驱动出现 "failed to get valid pixel format" 错误
+        vtk.vtkRenderWindow.SetGlobalMaximumNumberOfMultiSamples(0)
+
         # 创建 PyVista Qt 交互窗口
-        self._plotter = QtInteractor()
+        try:
+            self._plotter = QtInteractor()
+        except Exception as e:
+            logger.exception("创建 QtInteractor 失败")
+            self._show_message(f"初始化 3D 渲染窗口失败:\n{e}\n\n建议更新显卡驱动后重试。")
+            return
 
         # 添加体渲染
         grid = pv.ImageData()
