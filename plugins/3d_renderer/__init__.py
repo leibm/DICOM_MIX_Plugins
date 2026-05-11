@@ -64,12 +64,11 @@ class RendererPlugin:
 
     def deactivate(self):
         """停用插件：关闭渲染窗口。"""
-        if self._window is not None:
+        if self._plotter is not None:
             try:
-                self._window.close()
+                self._plotter.close()
             except Exception:
                 pass
-            self._window = None
             self._plotter = None
 
     # ------------------------------------------------------------------
@@ -141,7 +140,7 @@ class RendererPlugin:
         import numpy as np
         import pydicom
         import pyvista as pv
-        from pyvistaqt import MainWindow
+        from pyvistaqt import QtInteractor
 
         # 读取并排序 DICOM 文件
         try:
@@ -150,8 +149,8 @@ class RendererPlugin:
             self._show_message(f"加载 DICOM 数据失败:\n{e}")
             return
 
-        # 创建 PyVista 窗口
-        self._window = pv.QtInteractor()
+        # 创建 PyVista Qt 交互窗口
+        self._plotter = QtInteractor()
 
         # 添加体渲染
         grid = pv.UniformGrid()
@@ -163,13 +162,13 @@ class RendererPlugin:
         # 添加轮廓（面渲染）
         contours = grid.contour(isosurfaces=8)
         if contours.n_points > 0:
-            self._window.add_mesh(contours, opacity=0.5, color="white")
+            self._plotter.add_mesh(contours, opacity=0.5, color="white")
 
         # 添加体属性（体渲染）
-        self._window.add_volume(grid, cmap="gray", opacity="sigmoid")
+        self._plotter.add_volume(grid, cmap="gray", opacity="sigmoid")
 
-        self._window.reset_camera()
-        self._window.show()
+        self._plotter.reset_camera()
+        self._plotter.show()
 
     def _load_dicom_volume(self, file_list: List[str]):
         """

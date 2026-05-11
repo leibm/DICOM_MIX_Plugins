@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "description": "三维医学图像体渲染与 MPR 重建插件",
     "author": "leibm",
-    "dependencies": ["vtk", "pyvista"],
+    "dependencies": ["vtk", "pyvista", "pyvistaqt"],
     "entry_point": "RendererPlugin",
     "min_app_version": "4.0.0"
 }
