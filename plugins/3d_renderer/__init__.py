@@ -156,7 +156,7 @@ class RendererPlugin:
         self._plotter = QtInteractor()
 
         # 添加体渲染
-        grid = pv.UniformGrid()
+        grid = pv.ImageData()
         grid.dimensions = volume_data.shape
         grid.spacing = spacing
         grid.origin = (0, 0, 0)
